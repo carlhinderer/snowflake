@@ -88,3 +88,8 @@
     - When creating an object, we can use CREATE, or optionally you can add either the IF NOT EXISTS or
         OR REPLACE syntax.  For our examples, we'll use CREATE OR REPLACE so that you can always go back
         to exercises at the beginning of the chapter.  In production, we should use CREATE IF NOT EXISTS.
+
+
+    - Github repo for the book:
+
+        https://github.com/SnowflakeDefinitiveGuide

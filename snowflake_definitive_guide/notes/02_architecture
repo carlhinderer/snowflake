@@ -1,0 +1,283 @@
+-----------------------------------------------------------------------
+| CHAPTER 2 - CREATING & MANAGING SNOWFLAKE ARCHITECTURE              |
+-----------------------------------------------------------------------
+
+- Prep Work
+
+    - Create a new worksheet called 'Chapter2 Creating and Managing Snowflake Architecture'.  Make sure
+        you are using the SYSADMIN role.
+
+
+
+- Traditional Data Platform Architectures
+
+    - Shared-Disk Architecture
+
+        - The shared-disk architecture was an early scaling approach designed to keep data in a central
+            storage location and accessible from multiple database cluster nodes.
+
+        - All data modifications were written to the shared disk.
+
+        - This is a traditional DB design and is simple to manage.  However, locking mechanisms used to
+            ensure consistency caused bottlenecks, and scalability is limited.
+
+
+    - Shared-Nothing Architecture
+
+        - Storage and compute were scaled together, eliminating the bottleneck of shared-disk.
+
+        - This requires data to be shuffled between nodes, which adds overhead.  Data has to be carefully
+            distributed to minimize this.
+
+        - Sizing the cluster is difficult, and many organizations end up overprovisioning.
+
+
+    - NoSQL Alternatives
+
+        - These are also mostly shared-nothing architectures, however they can store nonrelational data
+            without having to transform it first.  They don't require fixed schemas.
+
+        - There are 4 types: Document Stores, Key/Value Stores, Column Family Stores, and Graph Databases.
+
+        - They mostly perform poorly when doing aggregations, window functions, and arbitrary ordering.
+            Thus, they're not recommended for ad hoc analysis.
+
+
+
+- The Snowflake Architecture
+
+    - Compute and storage are physically separated, but logically integrated.  Security and management are
+        also built-in.
+
+
+    - 3 Layers:
+
+        - Cloud Services Layer
+        - Compute Layer
+        - Data Storage Layer
+
+
+    - Diagram located at 'diagrams/ch02/architecture.jpeg'.
+
+
+
+- The Cloud Services Layer
+
+    - This is a collection of services that coordinate activity, such as authentication, access control, and
+        encryption.  It also includes management functions for handling infrastructure and metadata, as well 
+        as performing query parsing and optimization, among other features.
+
+    - The cloud services layer runs across multiple availability zones in each cloud provider region and
+        holds the results cache, a cached copy of query results.
+
+    - Scaling of the cloud services layer is an automated process and doesn't need to be directly manipulated
+        by the end user.
+
+    - All queries use a small number of cloud services resources.  Most service consumption is incorporated
+        into Snowflake pricing, but customers will be charged overage if the exceed their daily compute
+        credits.
+
+
+
+- The Query Processing (Virtual Warehouse) Compute Layer
+
+    - A Snowflake compute cluster, most often referred to as a 'virtual warehouse', is a dynamic cluster of
+        compute resources consisting of CPU, memory, and temporary storage.
+
+    - A running VW is required for most SQL queries and all DML operations.  Some queries may not require
+        a VW if their results are cached in the Cloud Services layer.
+
+    - The separation between compute and storage means that any VW can access any data without impact on
+        the performance of other VWs.
+
+    - A VW is always consuming credits when it is running in a session.  However, Snowflake VWs can be 
+        started and stopped at any time.
+
+    - VWs can be scaled by resizing a warehouse or by adding clusters to a warehouse.  One or both scaling
+        methods can be used at the same time.
+
+
+    - A Snowflake compute cluster is defined by its size, corresponding to the number of servers.  For
+        each size increase, the compute power and credit consumption doubles:
+
+        X-Small  Small  Medium  Large  X-Large  2X-Large  3X-Large  4X-Large
+        -----------------------------------------------------------------------
+        1        2      4       8      16       32        64        128
+
+
+    - Resizing a VW is a manual process that can be done while queries are running.  Existing queries will
+        keep running normally, while new queries will take advantage of the new resources.
+
+    - By default, 'Auto Suspend' and 'Auto Resume' are enabled.  The VW will automatically suspend if it
+        has been inactive for a specified period of time.  It will automatically resume if there are any
+        incoming queries.  The default is 10 minutes.
+
+
+
+- Scaling Out with Multicluster VWs to Maximize Concurrency
+
+    - In the previous section, we scaled up when our problem was very long-running SQL queries or a large
+        data volume to be loaded and unloaded.
+
+    - If a concurrency problem is due to too many users or connections, scaling up will not address the
+        problem.  We need to scale out by adding clusters.
+
+    - Unlike scaling up, scaling out is an automated process.  You set the parameters, for example you can
+        specify a minimum of 1 cluster and a maximum of 3 clusters.
+
+
+    - The 2 modes that can be selected for a multicluster VW are 'Autoscale' and 'Maximized'.  The scaling
+        policy can be set to:
+
+        Standard = a new cluster will be spun up if there is 1 more query than current clusters can execute
+
+        Economy = a new cluster will be spun up if new queries can keep a new cluster busy for at least 
+                    6 minutes
+
+
+
+- Creating and Using VWs
+
+    - Commands cab be executed in the UI or by running SQL commands in a worksheet.
+
+
+    - To create a medium-sized VW, with 4 clusters, that will automatically suspend after 5 minutes
+        (It is a best practice to create a new VW in a suspended state, since it can take time to
+        provision resources):
+
+        USE ROLE SYSADMIN;
+        CREATE WAREHOUSE CH2_WH WITH WAREHOUSE_SIZE = MEDIUM
+        AUTO_SUSPEND = 300 AUTO_RESUME = true INITIALLY_SUSPENDED = true;
+
+
+    - To scale the size of the VW up or down:
+
+        USE ROLE SYSADMIN;
+        ALTER WAREHOUSE CH2_WH
+        SET WAREHOUSE_SIZE = LARGE;
+
+
+    - To use this VW:
+
+        USE WAREHOUSE CH2_WH;
+
+
+    - To update the Warehouse in the UI, use the Main Menu > Admin > Warehouses.
+
+
+
+- Separation of Workloads and Workload Management
+
+    - In traditional DB systems, query processing slows down when workload reaches full capacity.  In
+        contrast, Snowflake estimates the resources needed for each query, and suspends new queries in
+        a queue when the workload approaches 100%.
+
+
+    - We can spread a workload out by assigning different users to different VWs (1 for accounting, 1 for 
+        marketing, 1 for data science).  
+
+
+    - To create a multi-cluster VW:
+
+        USE ROLE SYSADMIN;
+        CREATE OR REPLACE WAREHOUSE ACCOUNTING_WH
+        WITH Warehouse_Size = MEDIUM MIN_CLUSTER_COUNT = 1
+        MAX_CLUSTER_COUNT = 6 SCALING_POLICY = 'STANDARD';
+
+
+
+- Centralized (Hybrid Columnar) Database Storage Layer
+
+    - The database storage layer holds all data, including structured and semi-structured data.  As data is
+        loaded into Snowflake, it is reorganized into a compressed, columnar format, and stored and
+        maintained in Snowflake databases.
+
+
+    - Each Snowflake DB consists of one or more schemas, which are logical groupings of database objects
+        like tables and views.
+
+
+    - Data stored in Snowflake databases is always compressed and encrypted.  Data is automatically 
+        organized in micro-partitions, an optimized, immutable, compressed columnar format encrypted using
+        AES-256.
+
+
+    - When a user submits a Snowflake query, the query is sent to the cloud services optimizer before
+        being sent to the compute layer for processing.
+
+
+    - The underlying file system for the storage layer is implemented on Amazon, Microsoft, or Google Cloud.
+        There is no limit on the amount of data you can store.
+
+
+    - 'Zero-Copy Cloning' offers the user a way to snapshot a Snowflake database, schema, or table along 
+        with it's associated data.  There is no additional storage charge until changes are made to the
+        cloned object, since zero-copy cloning is a metadata-only operation.
+
+      This is often used to support development and test environments.
+
+
+    - 'Time Travel' allows you to restore previous versions of a database, table, or schema.  This lets you
+        fix mistakes or restore items deleted in error.  Note that data storage fees will be assessed
+        for any data that has been deleted by is still available to restore.
+
+
+    - Billing is based on the daily average size of compressed data.
+
+
+
+- Snowflake Caching
+
+    - When you submit a query, Snowflake checks to see whether the query has previously been run, and if
+        the results are still cached.  There are 3 Snowflake caching types:
+
+        1. Query result cache
+        2. Virtual warehouse cache
+        3. Metadata cache
+
+
+    - Query Result Cache
+
+        - The results of a query are cached for 24 hours, then purged.
+        - The clock is reset every time the query is executed.
+        - After 31 days or if the underlying data has changed, a new result is generated.
+        - Fully managed by the Global Cloud Services layer, so its available across all VWs
+
+        - To disable the query result cache for testing:
+
+            ALTER SESSION SET USE_CACHED_RESULT=FALSE;
+
+
+    - Metadata Cache
+
+        - The metadata cache is also fully managed in the Global Services layer
+        - Collects and manages metadata about tables, micropartitions, and clustering
+        - For tables, row count, table size, file references, and table versions are stored
+        - For columns, MIN, MAX, NULL count, number of distinct values are stored
+
+
+    - VW Local Disk Cache
+
+        - Specific to the warehouse, and used to process the query
+
+        - Running VWs use SSD storage to store the micropartitions pulled from the storage layer when a
+            query is processed
+
+        - Uses LRU algorithm
+        - Dropped once VW is suspended
+
+
+
+- Code Cleanup
+
+    - Make sure to set the cached results back to TRUE:
+
+        USE ROLE SYSADMIN;
+        ALTER SESSION SET USE_CACHED_RESULT=TRUE;
+
+
+    - Drop the virtual warehouses:
+
+        USE ROLE SYSADMIN;
+        DROP WAREHOUSE CH2_WH;
+        DROP WAREHOUSE ACCOUNTING_WH;
