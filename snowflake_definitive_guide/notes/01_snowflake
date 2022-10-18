@@ -1,0 +1,90 @@
+-----------------------------------------------------------------------
+| CHAPTER 1 - GETTING STARTED                                         |
+-----------------------------------------------------------------------
+
+- Snowflake
+
+    - Innovative cloud DW
+    - Became commercially available in 2015
+    - Largest software IPO in history in 2020
+    - Secure and powerful, but cost-effective and simple to maintain
+
+
+
+- Snowflake Web UIs
+
+    - Classic Console = traditional UI
+    - Snowsight = New UI, introduced in 2021, will be default for all accounts in 2023
+    - All our hands-on exercises will be completed in Snowsight
+
+
+
+- Snowsight Orientation
+
+    - Menu bar has User Menu (with your username) and Main Menu
+    - You can switch between roles, your default role for a new account is USERADMIN
+
+
+
+- Navigating Snowsight Worksheets
+
+    - Snowsight has auto-save and versioning history, you can revert back to a previous version of worksheet
+    - We'll need to set the context to perform queries (virtual warehouse, database, schema)
+    - In trial org, your default virtual warehouse is 'COMPUTE_WH'
+
+    - Now, we'll create a new folder and worksheet
+        > New Folder: 'Chapter1'
+        > New Worksheet: Change name to 'Chapter 1 Getting Started'
+
+        > Add First Queries:
+            SELECT CURRENT_ROLE();
+            SELECT CURRENT_WAREHOUSE();
+
+
+    - Note that when we click run, only the current line where the cursor is will be run.  To run all 
+        statements, highlight them all before running.  (Cntl+Enter is shortcut for Run)
+
+
+    - Now, we'll see that we are not connected to a database:
+
+        SELECT CURRENT_DATABASE();
+
+
+    - We can set the context for our database either with the drop-down or with a USE command.
+
+        USE DATABASE SNOWFLAKE_SAMPLE_DATA;
+
+
+    - To set the current scheama, use the drop-down to select 'TPCDS_SF100TCL'.  To see the current
+        schema:
+
+        SELECT CURRENT_SCHEMA();
+
+
+    - The blue buttons can be selected/deselected:
+
+        Objects      # Whether you see the objects on the left side of screen
+        Editor       # Whether or not you see the query editor
+        Results      # Whether you see the query results
+        Chart        # Whether you see chart view
+
+
+    - Use the drop-down menu and select 'Format query' to have your SQL query neatly reformatted.
+
+    - Use the drop-down menu and select 'Show shortcuts' to get a list of command shortcuts.
+
+    - Use the drop-down on the right side of the screen 'updated 1 minute ago' to access complete history 
+        for the worksheet.  A new version is saved every time a SQL query is run.
+
+    - Click the house icon in the upper left to go back to the homepage.
+
+
+
+- Important Caveats
+
+    - For object names, we'll use all uppercase since it is the recommended default.  If we use mixed case
+        or all lowercase, the name must be contained in quotes.
+
+    - When creating an object, we can use CREATE, or optionally you can add either the IF NOT EXISTS or
+        OR REPLACE syntax.  For our examples, we'll use CREATE OR REPLACE so that you can always go back
+        to exercises at the beginning of the chapter.  In production, we should use CREATE IF NOT EXISTS.
