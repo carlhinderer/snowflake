@@ -128,8 +128,8 @@
         and does not result in storage charges.
 
       We'll be using the SNOWFLAKE_SAMPLE_DATA db in exercises in this chapter.  It is a shared db that
-        anyone can access.  We don't incur storage costs for it, but we will incur costs if we run queries
-        on it.
+        anyone can access.  We don't incur storage costs for it, but we will incur compute costs if we run 
+        queries on it.
 
 
 
@@ -157,7 +157,7 @@
         SHOW SCHEMAS;
 
 
-    - In the previous section, we created a 'SUMMARY' table in the ' DEMO3B_DB.PUBLIC' schema.  Now, we
+    - In the previous section, we created a 'SUMMARY' table in the 'DEMO3B_DB.PUBLIC' schema.  Now, we
         decide we want the table to exist in a different schema.  We'll create the new schema, then
         rename the table.
 
@@ -243,9 +243,9 @@
     - There are different ways to look at database-specific metadata.  For instance, these will both show
         you the schemas, although the INFORMATION_SCHEMA method provides more information:
 
-         SELECT * FROM SNOWFLAKE_SAMPLE_DATA.INFORMATION_SCHEMA.SCHEMATA;
+        SELECT * FROM SNOWFLAKE_SAMPLE_DATA.INFORMATION_SCHEMA.SCHEMATA;
 
-         SHOW SCHEMAS IN DATABASE SNOWFLAKE_SAMPLE_DATA;
+        SHOW SCHEMAS IN DATABASE SNOWFLAKE_SAMPLE_DATA;
 
 
     - To look at table privileges:
@@ -286,7 +286,7 @@
 
 
 
-- Snowflake Tables
+- Creating and Managing Snowflake Tables
 
     - All Snowflake data is stored in tables.  In addition to permanent and transient tables, there are
         also hybrid, temporary, and external tables.
@@ -312,24 +312,344 @@
         thought of as the logical progression of streams.
 
 
+    - Like with databases and schemas, we can use the CREATE, ALTER, DROP, and SHOW TABLES commands.  Also,
+        we'll use INTERT INTO or COPY INTO to place data in tables.  
+
+      For tables we create, we can also use TRUNCATE or DELETE to remove data from a table.  TRUNCATE also
+        clears table load history metadata, while DELETE retains the metadata.
+
+
+    - Transient tables have characteristics of both permanent and temporary tables.  They are designed for
+        transitory data that needs to be maintained beyond a session but doesn't need the same level of
+        data recovery as permanent tables.  The storage costs are lower.
+
+
+    - Transient tables cannot be converted to permanent, and permanent tables cannot be converted to
+        transient, because this is set at table creation time.
+
+
+    - Now, we'll create some tables that will be used later in the chapter.
+
+        USE ROLE SYSADMIN; USE DATABASE DEMO3A_DB;
+        CREATE OR REPLACE SCHEMA BANKING;
+
+        CREATE OR REPLACE TABLE CUSTOMER_ACCT
+        (Customer_Account int, Amount int, transaction_ts timestamp);
+
+        CREATE OR REPLACE TABLE CASH
+        (Customer_Account int, Amount int, transaction_ts timestamp);
+
+        CREATE OR REPLACE TABLE RECEIVABLES
+        (Customer_Account int, Amount int, transaction_ts timestamp);
+
+
+    - Now, the active role is 'SYSADMIN', the active database is 'DEMO3A_DB', and the active schema is
+        'BANKING'.  If we create a new table, it will be located in the 'BANKING schema':
+
+        -- Create new table
+        CREATE OR REPLACE TABLE NEWTABLE
+        (Customer_Account int, Amount int, transaction_ts timestamp);
+
+        -- Drop table
+        DROP TABLE DEMO3A_DB.BANKING.NEWTABLE;
+
+
 
 - Creating and Managing Views
+
+    - Along with tables, views are the primary objects maintained in database schemas.  There are 2 types
+        of views: materialized and nonmaterialized.  The default type is nonmaterialized.
+
+
+    - A view is a virtual table created by a query expression.  To create a view by selecting one column
+        from Snowflake sample data:
+
+        CREATE OR REPLACE VIEW DEMO3B_DB.PUBLIC.NEWVIEW AS
+        SELECT CC_NAME
+        FROM (SELECT * FROM SNOWFLAKE_SAMPLE_DATA.TPCDS_SF100TCL.CALL_CENTER);
+
+
+    - Views are useful for showing subsets of tables, which is often for security purposes.
+
+
+    - To create a materialized view:
+
+        CREATE OR REPLACE MATERIALIZED VIEW DEMO3B_DB.PUBLIC.NEWVIEW_MVW AS
+        SELECT CC_NAME
+        FROM (SELECT * FROM SNOWFLAKE_SAMPLE_DATA.TPCDS_SF100TCL.CALL_CENTER);
+
+
+    - To see the views that have been created:
+
+        -- Show both nonmaterialized and materialized views
+        USE SCHEMA DEMO3B_DB.PUBLIC;
+        SHOW VIEWS;
+
+        -- Show materialized views only
+        SHOW MATERIALIZED VIEWS;
+
+
+    - Materialized views get periodically refreshed with data from the base table.  They are generally used
+        to aggregate as well as filter data so that the results of resource-intensive operations can be
+        stored for improved data performance.  This especially helps if the same query is used frequently.
+
+      Snowflake uses a background service to automatically update materialized views.  As a result, the
+        data accessed through materialized views is always current.
+
+
+    - To illustrate this, we'll create a materialized view.  We'll also create a nonmaterialized view for
+        comparison:
+
+        -- Materialized view
+        CREATE OR REPLACE MATERIALIZED VIEW DEMO3B_DB.BANKING.SUMMARY_MVW AS
+        SELECT * FROM (SELECT * FROM DEMO3B_DB.BANKING.SUMMARY);
+
+        -- Nonmaterialized view
+        CREATE OR REPLACE VIEW DEMO3B_DB.BANKING.SUMMARY_VW AS
+        SELECT * FROM (SELECT * FROM DEMO3B_DB.BANKING.SUMMARY);
+
+
+    - As a general rule, it is better to use a nonmaterialized view when the results of the view change
+        frequently and the query isn't so expensive and complex to rerun.
+
+        - Regular views incur compute costs but not storage costs
+        - Need to way compute costs vs storage costs
+        - Materialized views are better for expensive queries that don't change much
+        - Materialized views can only query a single table, joins aren't supported
 
 
 
 - Snowflake Stages: File Format Included
 
+    - There are 2 types of Snowflake stages: internal and external.  'Stages' are Snowflake objects that
+        point to a storage location, either internal to Snowflake or on external cloud storage.
+
+
+    - Internal stage objects can be either 'named stages' or a 'user stage' or 'table stage'.  The
+        'temporary' keyword can be used to create a session-based stage object.
+
+
+    - In most cases, the storage is permanent, while the stage object (a pointer to the storage location)
+        can be temporary or dropped at any time.  Stages are often used as an intermediate step to load
+        files to Snowflake tables or unload data from tables into files.
+
+
+    - Outside locations, such as AWS S3 buckets, Google Cloud Storage buckets, or Azure containers, can 
+        be used in external stages.
+
+
+    - Each user has a stage for storing files which is accessible only by that user (referenced by @~).
+        Each Snowflake table has a stage allocated for storing files (referenced by @%<tablename>).
+
+        -- List user stages
+        ls@~
+
+        OR
+
+        LIST @~;
+
+
+    - User and table stages cannot be altered or dropped, and table stages do not support transforming
+        data while loading it.
+
+
+    - Internal named stages and external stages can also be created either as permanent or temporary
+        storage.  They are database objects, so they can be used by any user with the appropriate privileges.
+
+        - When a temporary external stage is dropped, the external data is unaffected.
+
+        - When a temporary internal stage is dropped, the data and stage are both dropped, and the files
+            are not recoverable.
+
+
+    - When using stages, we can use file formats to store all the format information we need from loading
+        data from files into tables.  The default file format is CSV.  However, we can also create file
+        formats for JSON, Avro, Parquet, ORC, and XML.
+
+
+    - Here is a very basic file format for loading JSON data into a stage:
+
+        USE ROLE SYSADMIN; USE DATABASE DEMO3B_DB;
+        CREATE OR REPLACE FILE FORMAT FF_JSON TYPE = JSON;
+
+
+    - Once we have created the file format, we can use it to create an internal named stage:
+
+        USE DATABASE DEMO3B_DB; USE SCHEMA BANKING;
+        CREATE OR REPLACE TEMPORARY STAGE BANKING_STG FILE_FORMAT = FF_JSON;
+
+
+    - The data is always encrypted, whether in flight to an internal named stage or at rest while stored
+        in a Snowflake database table.
+
 
 
 - Extending SQL with Stored Procedures and UDFs
 
+    - To extend SQL capabilities, you can create stored procedures and UDFs to acieve functionality not
+        possible with Snowflake's built-in functions.
+
+      Both stored procedures and UDFs encapsulate and return a single value.  UTFs can return multiple values 
+        (tabular) whereas stored procedures can only return a single value.
 
 
-- Secure SQL UDTF That Returns Tabular Value (Market Basket Analysis Example)
+    - You can create stored functions in JavaScript, and UDFS in SQL, Javascript, Python, or Java.
+
+
+    - Both stored procedures and UDFs extend SQL capabilities, but there are many differences between the 2.
+
+        - If you want to perform a db operation such as SELECT, DELETE, or CREATE, you'll need to use a
+            stored procedure.
+
+        - If you want to use a function as part of your SQL expression, or if your output needs to include
+            a value for each input row, you'll want to use a Snowflake UDF.
+
+        - A UDF is called as part of the SQL statement, but a stored procedure cannot be called in a SQL
+            statement.  It is an independent statement called using the CALL statement.
+
+        - A UDF is required to return a value, while a stored procedure is not.
+
+
+
+- Example - UDF
+
+    - Python UDFs can only return scalar results, while JS, Java, or SQL UDFs can return either scalar or
+        tabular results.
+
+        - A SQL UDF evaluates SQL statement and can refer to other UDFs
+
+        - A JS UDF is useful for manipulating JSON data, and can refer to itself recursively, but you
+            cannot import external libraries
+
+
+    - To get the JS types that we can use in our UDFs:
+
+        -- Get available JS Properties
+        CREATE OR REPLACE DATABASE DEMO3C_DB;
+
+        CREATE OR REPLACE FUNCTION JS_PROPERTIES()
+        RETURNS string LANGUAGE JAVASCRIPT AS
+        $$ return Object.getOwnPropertyNames(this); $$;
+
+        SELECT JS_PROPERTIES();
+
+
+    - For our first example, here is a standard factorial calculation:
+
+        USE ROLE SYSADMIN; USE DATABASE DEMO3C_DB;
+        CREATE OR REPLACE FUNCTION FACTORIAL(n variant)
+        RETURNS variant LANGUAGE JAVASCRIPT AS
+            'var f=n;
+            for (i=n-1; i>0; i--) {
+                f=f*i
+            }
+            return f';
+
+        -- Call the function
+        SELECT FACTORIAL(5);
+
+        -- This will error out, since there are size and depth limitations
+        SELECT FACTORIAL(50);
+
+
+    - It is also possible to create secure UDFs, which are the same as regular UDFs, but they hid the DDL
+        from the consumer of the UDF and can be shared.
+
+
+
+- Example - Secure SQL UDTF That Returns Tabular Value (Market Basket Analysis Example)
+
+    - Market baskey analysis is a common use of secure SQL UDFs.  In our example, we want to see how many
+        times other items were sold with a particular item.
+
+
+    - Since we don't want the consumer account to have access to our raw sales data, we'll wrap the SQL
+        statement in a secure UDF and create an input parameter.  For our sales data, we'll select a 
+        subset of 100,000 rows from the Snowflake sample database.
+
+        CREATE OR REPLACE DATABASE DEMO3D_DB;
+
+        CREATE OR REPLACE TABLE DEMO3D_DB.PUBLIC.SALES AS
+        (SELECT * FROM SNOWFLAKE_SAMPLE_DATA.TPCDS_SF100TCL.WEB_SALES)
+        LIMIT 100000;
+
+
+    - Now, we'll run out query directly on the new table:
+
+        SELECT 1 AS INPUT_ITEM, 
+               WS_WEB_SITE_SK AS BASKET_ITEM,
+               COUNT (DISTINCT WS_ORDER_NUMBER) BASKETS
+        FROM DEMO3D_DB.PUBLIC.SALES
+        WHERE WS_ORDER_NUMBER IN
+          (SELECT WS_ORDER_NUMBER
+           FROM DEMO3D_DB.PUBLIC.SALES
+           WHERE WS_WEB_SITE_SK = 1)
+        GROUP BY WS_WEB_SITE_SK
+        ORDER BY 3 DESC, 2;
+
+
+    - We might be willing to share those kind of related sales details with the manufacturers, but we 
+        wouldn't want to allow them to access the underlying data.  To, instead we will provide a secure
+        SQL UDF function.
+
+        CREATE OR REPLACE SECURE FUNCTION
+            DEMO3D_DB.PUBLIC.GET_MKTBASKET(INPUT_WEB_SITE_SK number(38))
+        RETURNS TABLE (INPUT_ITEM NUMBER(38, 0), BASKET_ITEM NUMBER(38, 0), BASKETS NUMBER(38, 0)) AS
+            'SELECT input_web_site_sk, 
+                    WS_WEB_SITE_SK as BASKET_ITEM,
+                    COUNT(DISTINCT WS_ORDER_NUMBER) BASKETS
+            FROM DEMO3D_DB.PUBLIC.SALES
+            WHERE WS_ORDER_NUMBER IN
+                (SELECT WS_ORDER_NUMBER
+                 FROM DEMO3D_DB.PUBLIC.SALES
+                 WHERE WS_WEB_SITE_SK = input_web_site_sk)
+            GROUP BY ws_web_site_sk
+            ORDER BY 3 DESC, 2';
+
+
+    - To call the secure function:
+
+        -- Get items bought with item 1
+        SELECT * FROM TABLE(DEMO3D_DB.PUBLIC.GET_MKTBASKET(1));
 
 
 
 - Stored Procedures
+
+    - Stored procedures allow you to extend Snowflake SQL by combining it with JS in order to include
+        branching, looping, and error handling.  They can only be written in JS at this time.
+
+
+    - In our first stored procedure example, we'll pass in an argument:
+
+        -- Define stored procedure
+        CREATE OR REPLACE DATABASE DEMO3E_DB;
+
+        CREATE OR REPLACE PROCEDURE STOREDPROC1(ARGUMENT1 VARCHAR)
+        RETURNS string not null
+        language javascript AS
+        $$
+        var INPUT_ARGUMENT1 = ARGUMENT1;
+        var result = `${INPUT_ARGUMENT1}`
+        return result;
+        $$;
+
+        -- Call the stored procedure
+        CALL STOREDPROC1('I really love Snowflake!')
+
+
+
+- Example - Stored Procedure for Deposit Transaction
+
+    - We are recording the accounting transactions for a bank that deals with customers giving cash to the
+        bank and getting cash from the bank.  We'll keep track of deposits, withdrawls, and loan payments.
+
+
+    - First, we'll create a stored procedure for a deposit transaction in which the bank's cash account is
+        debited and the customer account on the bank's balance sheet is credited whenever a customer
+        gives the bank cash to add to their account.
+
+        
 
 
 
