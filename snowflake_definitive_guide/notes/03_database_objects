@@ -1,0 +1,348 @@
+-----------------------------------------------------------------------
+| CHAPTER 3 - CREATING AND MANAGING DATABASE OBJECTS                  |
+-----------------------------------------------------------------------
+
+- Database Basics
+
+    - Within Snowflake, all data is stored in database tables.  Tables are logically structured into rows
+        and columns.  
+
+
+    - All the objects discussed in this chapter are 'securable database objects'.  A Snowflake securable
+        object is an entity for which you grant access to specific roles.  Roles, which have been granted
+        access privileges, are assigned to users.  A User can be either a person or application.
+
+
+
+- Prep Work
+
+    - Create a new worksheet called 'Chapter3 Creating Database Objects'.
+
+    - We should be using the 'SYSADMIN' role and the 'COMPUTE_WH' database, which we'll create now.
+
+
+
+- Creating and Managing Snowflake Databases
+
+    - In Snowflake, a database logically groups data, while the schema organizes it.  Together, the 
+        database and schema comprise the namespace.  Whenever we work with db objects, we'll need to specify
+        a namespace, unless the db and schema we want to use are the active context in the workspace.
+
+      If the database or schema needs to be specified, we include the USE command.
+
+
+    - We can create either 'permanent' or 'transient' databases.  Transient databases have a maximum
+        one-day retention period (aka 'Time Travel period').
+
+
+    - The Snowflake Time Travel period is the time during which table data can be queried at a historical
+        point in time.  The default time travel period is one day, but it can be up to 90 days for
+        permanent databases.  The Time Travel period can also be set to 0 days if the property is not
+        desired.
+
+
+    - Snowflake's 'fail-safe data recovery' service provides a 7-day retention period during which
+        data from permanent dbs and db objects may be recoverable.  
+
+        - The fail-safe recovery period is 7 days after the data retention period ends.  
+
+        - Unlike time-travel data, fail-safe data is only recoverable by Snowflake employees.
+
+        - Data storage costs are incurred for those 7 days, which is a consideration when deciding what type
+            of database to create.
+
+
+    - The basic SQL commands for dbs are:
+
+        CREATE DATABASE
+        ALTER DATABASE
+        DROP DATABASE
+        SHOW DATABASE
+
+
+    - The CREATE DATABASE command is used to:
+
+        - Create a new database
+        - Clone an existing database
+        - Create a database from a share provided by another Snowflake account
+        - Create a replica of an existing primary database
+
+
+    - We can create a database either with the UI or the SQL command.  We'll start by creating one with the
+        UI.
+
+        > Add Database
+
+            Name: DEMO3A_DB 
+            Comment: Permanent database for Chapter 3 Exercises
+
+
+    - Now, we'll create another database, but this time we'll use SQL in the worksheet:
+
+        USE ROLE SYSADMIN;
+        USE WAREHOUSE COMPUTE_WH;
+        CREATE OR REPLACE TRANSIENT DATABASE DEMO3B_DB
+        Comment = 'Transient Database for Chapter 3 Exercises';
+
+
+    - Note that CREATE OR REPLACE should be used sparingly in Production, since it will overwrite an existing
+        database.  We should use CREATE IF NOT EXISTS instead.
+
+
+    - Whenever we create a new database, it is automatically set as the active database for the current
+        session.  To use a different database, we need to switch the context using USE DATABASE.
+
+
+    - As SYSADMIN, we'll see the 2 databases we just created, plus the 'SNOWFLAKE_SAMPLE_DATA' that
+        automatically comes with the Snowflake account.
+
+      If we switch to ACCOUNTADMIN, we'll see an addtional database called 'SNOWFLAKE'.
+
+        USE ROLE ACCOUNTADMIN;
+        SHOW DATABASES;
+
+
+    - Note that all databases, including the ones we just created, have a one-day retention time.  This
+        specifies the the number of days for which the underlying data is retained after deletion, and for
+        which CLONE and UNDROP commands can be performed on the db.
+
+      We can change the retention time for permanent databases, but not for transient ones.
+
+        USE ROLE SYSADMIN;
+        ALTER DATABASE DEMO3A_DB
+        SET DATA_RETENTION_TIME_IN_DAYS=10;
+
+
+    - We can create transient tables within a permanent db, but we cannot create permanent tables within a
+        transient db.  Here, we'll create a table in our transient db:
+
+        USE ROLE SYSADMIN;
+        CREATE OR REPLACE TABLE DEMO3B_DB.PUBLIC.SUMMARY
+          (CASH_AMT number,
+           RECEIVABLES_AMT number,
+           CUSTOMER_AMT number);
+
+
+    - The SNOWFLAKE db is owned by Snowflake, and is a system-defined, read-only, shared db that provides
+        object metadata and usage metrics about your account.  It cannot be deleted from your account,
+        and does not result in storage charges.
+
+      We'll be using the SNOWFLAKE_SAMPLE_DATA db in exercises in this chapter.  It is a shared db that
+        anyone can access.  We don't incur storage costs for it, but we will incur costs if we run queries
+        on it.
+
+
+
+- Creating and Managing Snowflake Schemas
+
+    - When we create a schema, we need to specify which db we want to use.  We can use either of these 2
+        commands to create a schema, they'll do the same thing:
+
+        -- This will create a schema
+        USE ROLE SYSADMIN; USE DATABASE DEMO3A_DB;
+        CREATE OR REPLACE SCHEMA BANKING;
+
+        -- This will also create a schema
+        USE ROLE SYSADMIN;
+        CREATE OR REPLACE SCHEMA DEMO3A_DB.BANKING;
+
+
+    - Since our db has a retention time of 10 days, our schema will also.  However, we can change this on
+        a per-schema basis:
+
+        USE ROLE SYSADMIN;
+        ALTER SCHEMA DEMO3A_DB.BANKING
+        SET DATA_RETENTION_TIME_IN_DAYS=1;
+
+        SHOW SCHEMAS;
+
+
+    - In the previous section, we created a 'SUMMARY' table in the ' DEMO3B_DB.PUBLIC' schema.  Now, we
+        decide we want the table to exist in a different schema.  We'll create the new schema, then
+        rename the table.
+
+        USE ROLE SYSADMIN;
+        CREATE OR REPLACE SCHEMA DEMO3B_DB.BANKING;
+        ALTER TABLE DEMO3B_DB.PUBLIC.SUMMARY
+        RENAME TO DEMO3B_DB.BANKING.SUMMARY;
+
+
+    - Just like db, schemas can either be permanent or transient (permanent is the default).  However, for
+        schemas, we also have 'managed access schemas'.  In a managed access schema, the schema owner 
+        manages grants on the object within a schema (ie table or view), but doesn't have USAGE, SELECT,
+        or DROP privileges on the objects.
+
+      To create a schema with managed access:
+
+        USE ROLE SYSADMIN; USE DATABASE DEMO3A_DB;
+        CREATE OR REPLACE SCHEMA MSCHEMA WITH MANAGED ACCESS;
+
+        -- Now, we can see the MANAGED ACCESS option set
+        SHOW SCHEMAS;
+
+
+    - There are 2 database schemas that are always included in every database that is created:
+        INFORMATION_SCHEMA and PUBLIC.  The PUBLIC schema is the default schema, and can be used to create
+        any other objects.
+
+      The INFORMATION_SCHEMA is a special schema for the system that contains views and table functions
+        which provide access to the db and account metadata.
+
+
+
+- INFORMATION_SCHEMA
+
+    - The INFORMATION_SCHEMA is aka the 'Data Dictionary', and includes metadata about the objects in the
+        database, as well as account-level objects such as roles.
+
+
+    - More than 20 system-defined views are included.  These views can be divided into 2 categories:
+        account views and database views.  Account views include:
+
+        APPLICABLE_ROLES                  # One role for each role grant
+        DATABASES                         # One row for each db defined in your account
+        ENABLED_ROLES                     # One row for each currently enabled row in the session
+        INFORMATION_SCHEMA_CATALOG_NAME   # Name of the db where the INFORMATION_SCHEMA resides
+        LOAD_HISTORY                      # One row for each file loaded into tables using COPY TO
+        REPLICATION_DATABASES             # One row for each primary and secondary db (for replication)
+
+
+    - To look at what is in each of these views (Note since they are account-level, they'll always return
+        the same results):
+
+        -- These return the same results
+        SELECT * FROM SNOWFLAKE_SAMPLE_DATA.INFORMATION_SCHEMA.DATABASES;
+        SELECT * FROM DEMO3A_DB.INFORMATION_SCHEMA.DATABASES;
+
+        -- These also return the same results
+        SELECT * FROM SNOWFLAKE_SAMPLE_DATA.INFORMATION_SCHEMA.APPLICABLE_ROLES;
+        SELECT * FROM DEMO3A_DB.INFORMATION_SCHEMA.APPLICABLE_ROLES;
+
+
+    - Some of the database views include:
+
+        COLUMNS                     # One row for each column in tables defined in db
+        EXTERNAL_TABLES             # One row for each external table in the db
+        FILE_FORMATS                # One row for each file format defined in the db
+        FUNCTIONS                   # One row for each UDF in the db
+        OBJECT_PRIVILEGES           # One row for each access privilege granted in the db
+        PIPES                       # One row for each pipe defined in the db
+        PROCEDURES                  # One row for each stored procedure defined in the db
+        REFERENTIAL_CONSTRAINTS     # One row for each referential integrity constraint defined in the db
+        SCHEMATA                    # One row for each schema defined in the db
+        SEQUENCES                   # One row for each stage defined in the db
+        STAGES                      # One row for each stage defined in the db
+        TABLE_CONSTRAINTS           # One row for each table constraint defined in the db
+        TABLE_PRIVILEGES            # One row for each table privilege granted to each role in the db
+        TABLE_STORAGE_METRICS       # Displays table-level storage utilization information
+        TABLES                      # One row for each table and view in the db
+        USAGE_PRIVILEGES            # One row for each privilege defined for sequences in the db
+        VIEWS                       # One row for each view in the db
+
+
+    - There are different ways to look at database-specific metadata.  For instance, these will both show
+        you the schemas, although the INFORMATION_SCHEMA method provides more information:
+
+         SELECT * FROM SNOWFLAKE_SAMPLE_DATA.INFORMATION_SCHEMA.SCHEMATA;
+
+         SHOW SCHEMAS IN DATABASE SNOWFLAKE_SAMPLE_DATA;
+
+
+    - To look at table privileges:
+
+        -- Empty since we didn't create any tables yet
+        SELECT * FROM DEMO3A_DB.INFORMATION_SCHEMA.TABLE_PRIVILEGES;
+
+        -- Has one row for the table we created
+        SELECT * FROM DEMO3B_DB.INFORMATION_SCHEMA.TABLE_PRIVILEGES;
+
+
+
+- ACCOUNT_USAGE Schema
+
+    - The SNOWFLAKE db, viewable by the ACCOUNTADMIN by default, includes an ACCOUNT_USAGE schema that is
+        very similar to INFORMATION_SCHEMA.  However, there are 3 differences:
+
+        1. The ACCOUNT_USAGE schema includes records for dropped objects
+
+        2. The ACCOUNT_USAGE schema has a longer retention time for historical data (one year)
+
+        3. Most views in the INFORMATION_SCHEMA have no latency, but the latency time for the ACCOUNT_USAGE 
+             schema can be up to 1-2 hours for some views.
+
+
+    - One of the common uses for ACCOUNT_USAGE is to keep track of credits used over time by each VW in
+        your account (month-to-date):
+
+        USE ROLE ACCOUNTADMIN; USE DATABASE SNOWFLAKE; USE SCHEMA ACCOUNT_USAGE;
+        USE WAREHOUSE COMPUTE_WH;
+
+        SELECT start_time::date AS USAGE_DATE, WAREHOUSE_NAME,
+        SUM(credits_used) AS TOTAL_CREDITS_CONSUMED
+        FROM warehouse_metering_history
+        WHERE start_time >= date_trunc(Month, current_date)
+        GROUP BY 1,2
+        ORDER BY 2,1;
+
+
+
+- Snowflake Tables
+
+    - All Snowflake data is stored in tables.  In addition to permanent and transient tables, there are
+        also hybrid, temporary, and external tables.
+
+        - Hybrid tables support the new Unistore workload (described in Ch 12).
+
+        - Temporary tables only exist in the session in which they are created, and are commonly used for ETL.
+
+        - External tables give you the ability to directly process or query data that exists elsewhere
+            without ingesting it into Snowflake, including data that lives in a data lake.
+
+
+    - One way you can work with your external data is by integrating Apache Hive metastores with Snowflake.
+        You can use the new Hive Metastore connector to connect to your Hadoop environments.  Snowflake
+        support is also available if you use new technologies like Delta Lake or Apache Iceberg.
+
+
+    - In June 2022, Snowflake introduced a new table type, 'materialized tables'.  Materialized tables allow
+        users to declaratively specify the pipelines where transformations can occur.  Snowflake then
+        handles the incremental refresh to materialize the data.
+
+      In this way, Snowflake materialized tables automatically refresh as new data streams in.  This can be
+        thought of as the logical progression of streams.
+
+
+
+- Creating and Managing Views
+
+
+
+- Snowflake Stages: File Format Included
+
+
+
+- Extending SQL with Stored Procedures and UDFs
+
+
+
+- Secure SQL UDTF That Returns Tabular Value (Market Basket Analysis Example)
+
+
+
+- Stored Procedures
+
+
+
+- Introduction to Pipes, Streams, and Sequences
+
+
+
+- Snowflake Streams (Deep Dive)
+
+
+
+- Snowflake Tasks (Deep Dive)
+
+
+
+- Code Cleanup

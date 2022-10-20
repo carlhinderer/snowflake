@@ -40,7 +40,7 @@
         - There are 4 types: Document Stores, Key/Value Stores, Column Family Stores, and Graph Databases.
 
         - They mostly perform poorly when doing aggregations, window functions, and arbitrary ordering.
-            Thus, they're not recommended for ad hoc analysis.
+            Thus, they're not recommended for ad hoc analysis in analytics.
 
 
 
@@ -138,7 +138,7 @@
 
 - Creating and Using VWs
 
-    - Commands cab be executed in the UI or by running SQL commands in a worksheet.
+    - Commands can be executed in the UI or by running SQL commands in a worksheet.
 
 
     - To create a medium-sized VW, with 4 clusters, that will automatically suspend after 5 minutes
