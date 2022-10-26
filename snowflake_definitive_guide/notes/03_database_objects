@@ -559,7 +559,7 @@
 
 - Example - Secure SQL UDTF That Returns Tabular Value (Market Basket Analysis Example)
 
-    - Market baskey analysis is a common use of secure SQL UDFs.  In our example, we want to see how many
+    - Market basket analysis is a common use of secure SQL UDFs.  In our example, we want to see how many
         times other items were sold with a particular item.
 
 
@@ -639,7 +639,7 @@
 
 
 
-- Example - Stored Procedure for Deposit Transaction
+- Example - Stored Procedure for Bank Transactions
 
     - We are recording the accounting transactions for a bank that deals with customers giving cash to the
         bank and getting cash from the bank.  We'll keep track of deposits, withdrawls, and loan payments.
@@ -649,15 +649,366 @@
         debited and the customer account on the bank's balance sheet is credited whenever a customer
         gives the bank cash to add to their account.
 
-        
+        USE ROLE SYSADMIN; USE DATABASE DEMO3A_DB; USE SCHEMA BANKING;
+        CREATE OR REPLACE PROCEDURE deposit(PARAM_ACCT FLOAT, PARAM_AMT FLOAT)
+        returns STRING LANGUAGE javascript AS
+            $$
+            var ret_val = ""; var cmd_debit = ""; var cmd_credit = "";
+
+            // INSERT data into tables
+            cmd_debit = "INSERT INTO DEMO3A_DB.BANKING.CASH VALUES ("
+            + PARAM_ACCT + "," + PARAM_AMT + ",current_timestamp());";
+
+            cmd_credit = "INSERT INTO DEMO3A_DB.BANKING.CUSTOMER_ACCT VALUES ("
+            + PARAM_ACCT + "," + PARAM_AMT + ",current_timestamp());";
+
+            // BEGIN transaction
+            snowflake.execute ({sqlText: cmd_debit});
+            snowflake.execute ({sqlText: cmd_credit});
+            ret_val = "Deposit Transaction Succeeded";
+            return ret_val;
+            $$;
+
+
+    - Next, we'll create a transaction for a withdrawl, which is just the reverse of a deposit:
+
+        USE ROLE SYSADMIN;USE DATABASE DEMO3A_DB; USE SCHEMA BANKING;
+        CREATE OR REPLACE PROCEDURE withdrawal(PARAM_ACCT FLOAT, PARAM_AMT FLOAT)
+        returns STRING LANGUAGE javascript AS
+            $$
+            var ret_val = ""; var cmd_debit = ""; var cmd_credit = "";
+
+            // INSERT data into tables
+            cmd_debit = "INSERT INTO DEMO3A_DB.BANKING.CUSTOMER_ACCT VALUES ("
+            + PARAM_ACCT + "," + (-PARAM_AMT) + ",current_timestamp());";
+
+            cmd_credit = "INSERT INTO DEMO3A_DB.BANKING.CASH VALUES ("
+            + PARAM_ACCT + "," + (-PARAM_AMT) + ",current_timestamp());";
+
+            // BEGIN transaction
+            snowflake.execute ({sqlText: cmd_debit});
+            snowflake.execute ({sqlText: cmd_credit});
+            ret_val = "Withdrawal Transaction Succeeded";
+            return ret_val;
+            $$;
+
+
+    - Finally, we'll create a transaction for a loan payment, in which the bank's cash accout is debited
+        and the receivables account is credited.
+
+        USE ROLE SYSADMIN;USE DATABASE DEMO3A_DB; USE SCHEMA BANKING;
+        CREATE OR REPLACE PROCEDURE loan_payment(PARAM_ACCT FLOAT, PARAM_AMT FLOAT)
+        returns STRING LANGUAGE javascript AS
+            $$
+            var ret_val = ""; var cmd_debit = ""; var cmd_credit = "";
+
+            // INSERT data into the tables
+            cmd_debit = "INSERT INTO DEMO3A_DB.BANKING.CASH VALUES ("
+            + PARAM_ACCT + "," + PARAM_AMT + ",current_timestamp());";
+
+            cmd_credit = "INSERT INTO DEMO3A_DB.BANKING.RECEIVABLES VALUES ("
+            + PARAM_ACCT + "," +(-PARAM_AMT) + ",current_timestamp());";
+
+            //BEGIN transaction
+            snowflake.execute ({sqlText: cmd_debit});
+            snowflake.execute ({sqlText: cmd_credit});
+            ret_val = "Loan Payment Transaction Succeeded";
+            return ret_val;
+            $$;
+
+
+    - Now, let's run a few quick tests to see if the procedures are working:
+
+        -- Make transactions
+        CALL withdrawl(21, 100);
+        CALL loan_payment(21, 100);
+        CALL deposit(21, 100);
+
+        -- Review results
+        SELECT CUSTOMER_ACCOUNT, AMOUNT FROM DEMO3A_DB.BANKING.CASH;
+
+
+    - Now, we can truncate the tables, leaving the tables intact, but removing the data:
+
+        USE ROLE SYSADMIN; USE DATABASE DEMO3A_DB; USE SCHEMA BANKING;
+        TRUNCATE TABLE DEMO3A_DB.BANKING.CUSTOMER_ACCT;
+        TRUNCATE TABLE DEMO3A_DB.BANKING.CASH;
+        TRUNCATE TABLE DEMO3A_DB.BANKING.RECEIVABLES;
+
+
+    - With the tables empty, now we can input some transactions by calling the procedures:
+
+        USE ROLE SYSADMIN;
+        CALL deposit(21, 10000);
+        CALL deposit(21, 400);
+        CALL loan_payment(14, 1000);
+        CALL withdrawal(21, 500);
+        CALL deposit(72, 4000);
+        CALL withdrawal(21, 250);
+
+
+    - We'd like to see a transaction summary, so we'll call one final stored procedure:
+
+        USE ROLE SYSADMIN; USE DATABASE DEMO3B_DB; USE SCHEMA BANKING;
+        CREATE OR REPLACE PROCEDURE Transactions_Summary()
+        returns STRING LANGUAGE javascript AS
+            $$
+            var cmd_truncate = `TRUNCATE TABLE IF EXISTS DEMO3B_DB.BANKING.SUMMARY;`
+            var sql = snowflake.createStatement({sqlText: cmd_truncate});
+
+            //Summarize Cash Amount
+            var cmd_cash = `Insert into DEMO3B_DB.BANKING.SUMMARY (CASH_AMT)
+            select sum(AMOUNT) from DEMO3A_DB.BANKING.CASH;`
+            var sql = snowflake.createStatement({sqlText: cmd_cash});
+
+            //Summarize Receivables Amount
+            var cmd_receivables = `Insert into DEMO3B_DB.BANKING.SUMMARY
+            (RECEIVABLES_AMT) select sum(AMOUNT) from DEMO3A_DB.BANKING.RECEIVABLES;`
+            var sql = snowflake.createStatement({sqlText: cmd_receivables});
+
+            //Summarize Customer Account Amount
+            var cmd_customer = `Insert into DEMO3B_DB.BANKING.SUMMARY (CUSTOMER_AMT)
+            select sum(AMOUNT) from DEMO3A_DB.BANKING.CUSTOMER_ACCT;`
+            var sql = snowflake.createStatement({sqlText: cmd_customer});
+
+            //BEGIN transaction
+            snowflake.execute ({sqlText: cmd_truncate});
+            snowflake.execute ({sqlText: cmd_cash});
+            snowflake.execute ({sqlText: cmd_receivables});
+            snowflake.execute ({sqlText: cmd_customer});
+            ret_val = "Transactions Successfully Summarized";
+            return ret_val;
+            $$;
+
+
+    - We'll call our new stored procedure to get the transaction summary:
+
+        -- Call procedure
+        CALL Transactions_Summary();
+
+        -- Look at the table
+        SELECT * FROM DEMO3B_DB.BANKING.SUMMARY;
+
+        -- Look at the materialized view we created earlier, which has been kept updated
+        USE ROLE SYSADMIN; USE DATABASE DEMO3B_DB;USE SCHEMA BANKING;
+        SELECT * FROM DEMO3B_DB.BANKING.SUMMARY_MVW;
+
+        -- Look at the nonmaterialized view we created earlier
+        USE ROLE SYSADMIN; USE DATABASE DEMO3B_DB;USE SCHEMA BANKING;
+        SELECT * FROM DEMO3B_DB.BANKING.SUMMARY_VW;
+
+
+
+- Example - Stored Procedure to Delete a Database
+
+    - We'll create a stored procedure to delete a database.  To do this, we'll add a 'task', which can 
+        either call a stored procedure or execute a single SQL statement.
+
+
+    - Obviously, it's important that we put the stored procedure in a different database from the one we
+        want to delete.
+
+        USE ROLE SYSADMIN; USE DATABASE DEMO3E_DB;
+        CREATE OR REPLACE PROCEDURE drop_db()
+        RETURNS STRING NOT NULL LANGUAGE javascript AS
+            $$
+            var cmd = `DROP DATABASE DEMO3A_DB;`
+            var sql = snowflake.createStatement({sqlText: cmd});
+            var result = sql.execute();
+            return 'Database has been successfully dropped';
+            $$;
+
+
+    - Now we can call the stored procedure and the database will be dropped.  This is part of the cleanup
+        for this chapter:
+
+        CALL drop_db();
+
+
+    - Now, we'll drop the other sample database from this chapter, and we'll add a task to do it 15
+        minutes from now.  Here's that stored procedure:
+
+        USE ROLE SYSADMIN;
+        CREATE OR REPLACE PROCEDURE drop_db() RETURNS STRING NOT NULL
+        LANGUAGE javascript AS
+            $$
+            var cmd = `DROP DATABASE "DEMO3B_DB";`
+            var sql = snowflake.createStatement({sqlText: cmd});
+            var result = sql.execute();
+            return 'Database has been successfully dropped';
+            $$;
+
+
+    - And here is the task we'll create to execute the stored procedure:
+
+        USE ROLE SYSADMIN; USE DATABASE DEMO3E_DB;
+        CREATE OR REPLACE TASK tsk_wait_15
+        WAREHOUSE = COMPUTE_WH SCHEDULE = '15 MINUTE'
+        AS CALL drop_db();
+
+
+    - The SYSADMIN role is going to need some privileges to execute the task, so we need to switch to
+        ACCOUNTADMIN.  Even though SYSADMIN is the task owner, an elevated account-level privilege to
+        execute tasks is required.
+
+        USE ROLE ACCOUNTADMIN;
+        GRANT EXECUTE TASK ON ACCOUNT TO ROLE SYSADMIN;
+
+
+    - We can now set the role to SYSADMIN.  Because tasks are always created in a suspended state, they'll
+        need to be resumed.
+
+        USE ROLE SYSADMIN;
+        ALTER TASK IF EXISTS tsk_wait_15 RESUME;
+
+
+    - To check that our task is created and in a scheduled state:
+
+        SELECT * FROM table(information_schema.task_history
+            (task_name => 'tsk_wait_15',
+            scheduled_time_range_start =>
+            dateadd('hour', -1, current_timestamp())));
+
+
+    - Once we see that the task has been completed and the database has been dropped, we can suspend the
+        task:
+
+        USE ROLE SYSADMIN;
+        ALTER TASK IF EXISTS tsk_15 SUSPEND;
 
 
 
 - Introduction to Pipes, Streams, and Sequences
 
+    - Pipes, streams, and sequences are Snowflake objects.
+
+        - 'Pipes' are objects that contain a COPY command that is used by Snowpipe.  Snowpipe is used for
+            continuous, serverless loading of data into a Snowflake target table.
+
+        - 'Streams', aka CDC, keep track of certain changes made to the table, including inserts, updates,
+            and deletes.  Streams have many useful purposes, including recording changes made in a
+            staging table which are used to update another table.
+
+        - A 'sequence' object is used to generate unique numbers.  Often, sequences are used as surrogate
+            keys for primary key values.
+
+
+    - Here is how we can generate a sequence that begins with 1 and increments by 1:
+
+        -- Generate sequence
+        USE ROLE SYSADMIN; USE DATABASE DEMO3E_DB;
+        CREATE OR REPLACE SEQUENCE SEQ_01 START = 1 INCREMENT = 1;
+        CREATE OR REPLACE TABLE SEQUENCE_TEST(i integer);
+
+        -- Run this query a few times to see increasing values
+        SELECT SEQ_01.NEXTVAL;
+
+
+    - This sequence increments by 2:
+
+        -- Generate sequence
+        USE ROLE SYSADMIN;USE DATABASE DEMO3E_DB;
+        CREATE OR REPLACE SEQUENCE SEQ_02 START = 1 INCREMENT = 2;
+        CREATE OR REPLACE TABLE SEQUENCE_TEST(i integer);
+
+        -- See the increments
+        SELECT SEQ_02.NEXTVAL a, SEQ_02.NEXTVAL b,SEQ_02.NEXTVAL c,SEQ_02.NEXTVAL d;
+
+
+    - Note that sequence values, although unique, are not necessarily free of gaps.  This is because 
+        sequences are user-defined and not tied to any specific table.
+
+      An alternative is to create identity columns in which you generate auto-incrementing numbers, often
+        used as a PK, in one specific table.
+
 
 
 - Snowflake Streams (Deep Dive)
+
+    - A Snowflake stream works like a pointer that keeps track of the status of a DML operation on a defined
+        table.  A Snowflake table stream creates a change table that shows what has changed, at a row level,
+        between 2 transactional points in time.
+
+
+    - Streams are like processing queues and can be queried just like a table.  Table streams make it easy
+        to grab the new data by taking a snapshot of all the rows in a table at a point in time, and only
+        storing an offset for the source table.
+
+      In this way, a stream can return the CDC records by leveraging the versioning history.
+
+
+    - For an example, we'll create a table for bank branches that stores the branch ID, city, and 
+        dollar amount of deposits on a particular day.  We'll create a new database, schema, and table.
+
+        -- Create objects
+        USE ROLE SYSADMIN;
+        CREATE OR REPLACE DATABASE DEMO3F_DB;
+        CREATE OR REPLACE SCHEMA BANKING;
+        CREATE OR REPLACE TABLE BRANCH (ID varchar, City varchar, Amount number (20,2));
+
+        -- Insert some data
+        INSERT INTO BRANCH (ID, City, Amount)
+        values
+            (12001, 'Abilene', 5387.97),
+            (12002, 'Barstow', 34478.10),
+            (12003, 'Cadbury', 8994.63);
+
+
+    - Now, we'll create 2 streams:
+
+        -- Create streams
+        CREATE OR REPLACE STREAM STREAM_A ON TABLE BRANCH;
+        CREATE OR REPLACE STREAM STREAM_B ON TABLE BRANCH;
+
+        -- View the streams we created
+        SHOW STREAMS;
+
+
+    - We'll add some more data, and then we can see the CDC records in the streams:
+
+        -- Insert more data
+        INSERT INTO BRANCH (ID, City, Amount)
+        values
+            (12004, 'Denton', 41242.93),
+            (12005, 'Everett', 6175.22),
+            (12006, 'Fargo', 443689.75);
+
+        -- View the updated table and the streams
+        SELECT * FROM BRANCH;
+        SELECT * FROM STREAM_A;
+        SELECT * FROM STREAM_B;
+
+
+    - Now, there are 6 records in the BRANCH table, and 3 records each in the STREAM_A and STREAM_B
+        tables.  We'll create a new stream, which will have no records at first.  Then, we'll insert some
+        more data.
+
+        -- Create new stream
+        CREATE OR REPLACE STREAM STREAM_C ON TABLE BRANCH;
+
+        -- Insert more data
+        INSERT INTO BRANCH (ID, City, Amount)
+        values
+            (12007, 'Galveston', 351247.79),
+            (12008, 'Houston', 917011.27);
+
+      At this point, BRANCH has 8 records, STREAM_A and STREAM_B each have 5 records, and STREAM_C has 2
+        records.
+
+
+    - If we re-create STREAM_B, all records will be removed, and it will have 0 records:
+
+        CREATE OR REPLACE STREAM STREAM_B ON TABLE BRANCH;
+
+
+    - To see the impact of deleting records, we'll delete the first record from each of the previous
+        inserts:
+
+        DELETE FROM BRANCH WHERE ID = 12001;
+        DELETE FROM BRANCH WHERE ID = 12004;
+        DELETE FROM BRANCH WHERE ID = 12007;
+
+
 
 
 
